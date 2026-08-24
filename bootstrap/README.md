@@ -1,6 +1,6 @@
 # Amazon Quick + Keycloak SSO 控制台配置步骤
 
-## 步骤 1/11：创建 Realm
+## 步骤 1/10：创建 Realm
 
 1. 登录 Keycloak 管理台：`https://sso.example.com`
 2. 左上角 Realm 下拉 → **Create realm**
@@ -12,7 +12,7 @@
 
 验证：访问 `https://sso.example.com/realms/quick/account`，页面标题应显示 "Sign in to Amazon Quick"
 
-## 步骤 2/11：创建管理员用户
+## 步骤 2/10：创建管理员用户
 
 1. 确认当前在 `quick` Realm
 2. 左侧菜单 → **Users** → **Add user**
@@ -32,7 +32,7 @@
 
 验证：访问 `https://sso.example.com/realms/quick/account`，使用该用户登录
 
-## 步骤 3/11：创建 SAML Client
+## 步骤 3/10：创建 SAML Client
 
 1. 确认当前在 `quick` Realm
 2. 左侧菜单 → **Clients** → **Create client**
@@ -53,7 +53,7 @@
 10. 保存
 11. 进入 **Client scopes** 标签 → 点击 `urn:amazon:webservices-dedicated` → **Scope** 标签 → 关闭 **Full Scope Allowed**
 
-## 步骤 4/11：配置 Client Roles 和 Mappers
+## 步骤 4/10：配置 Client Roles 和 Mappers
 
 ### 4.1 创建 Client Roles
 
@@ -100,7 +100,7 @@
 - SAML Attribute NameFormat: **URI Reference**
 - Property: `email`
 
-## 步骤 5/11：创建 Groups 并绑定 Client Roles
+## 步骤 5/10：创建 Groups 并绑定 Client Roles
 
 1. 左侧菜单 → **Groups** → **Create group**
 2. 创建 6 个 Group：
@@ -119,7 +119,7 @@
    - `quick-author` → 绑定 Author 的 Client Role
    - `quick-reader` → 绑定 Reader 的 Client Role
 
-## 步骤 6/11：创建 IAM SAML 身份提供商
+## 步骤 6/10：创建 IAM SAML 身份提供商
 
 1. 下载 Keycloak SAML Metadata XML：`https://sso.example.com/realms/quick/protocol/saml/descriptor`
 2. AWS 控制台 → **IAM** → **身份提供商** → **添加提供商**
@@ -128,7 +128,7 @@
 5. 上传 Metadata XML 文件
 6. 点击 **添加提供商**
 
-## 步骤 7/11：创建 IAM 角色
+## 步骤 7/10：创建 IAM 角色
 
 对以下 6 个角色分别执行：
 
@@ -202,7 +202,7 @@
 
 编辑角色 → 最大会话持续时间：改为 **43200 秒**（12 小时）
 
-## 步骤 8/11：在 Amazon Quick 开启 SSO
+## 步骤 8/10：在 Amazon Quick 开启 SSO
 
 1. 登录 Amazon Quick 管理页面
 2. 管理账户 → **SSO**
@@ -215,7 +215,7 @@
 
 验证：使用页面底部的测试 URL，在无痕浏览器中打开测试 SSO 登录
 
-## 步骤 9/11：测试 Web SSO
+## 步骤 9/10：测试 Web SSO
 
 ### IdP-Initiated SSO
 
@@ -244,9 +244,9 @@
 3. 跳转到 AWS 登录页，使用 AWS 用户名和密码登录
 4. 登录后验证进入 Quick
 
-## 步骤 10/11：配置 Quick 桌面客户端 SSO
+## 步骤 10/10：配置 Quick 桌面客户端 SSO
 
-### 9.1 创建 OIDC Client（Keycloak）
+### 10.1 创建 OIDC Client（Keycloak）
 
 1. 确认当前在 `quick` Realm
 2. 左侧菜单 → **Clients** → **Create client**
@@ -262,12 +262,12 @@
     - Valid Redirect URIs: `http://localhost:18080`
 12. 点击 **Save**
 
-### 9.2 配置 offline_access Scope
+### 10.2 配置 offline_access Scope
 
 1. 进入 Client `amazon-quick-desktop` → **Client scopes** 标签
 2. 找到 `offline_access`，将其从 Optional 改为 **Default**
 
-### 9.3 添加扩展访问权限（Quick 控制台）
+### 10.3 添加扩展访问权限（Quick 控制台）
 
 1. 登录 Amazon Quick 管理控制台
 2. 权限 → **扩展访问权限** → **添加扩展访问**
@@ -288,13 +288,13 @@
 
 > 以上端点可从 Keycloak 的 well-known 地址确认：`https://sso.example.com/realms/quick/.well-known/openid-configuration`
 
-### 9.4 添加扩展（Quick 控制台）
+### 10.4 添加扩展（Quick 控制台）
 
 1. 左侧导航 → 连接应用程序和数据 → **扩展** → **创建扩展**
 2. 选择上一步创建的桌面应用程序扩展 → 下一步
 3. 点击 **创建**
 
-### 9.5 测试
+### 10.5 测试
 
 1. 下载并安装 Amazon Quick Desktop
 2. 登录界面选择 **Enterprise 登录**

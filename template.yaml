@@ -12,6 +12,7 @@ Metadata:
           - PublicSubnet1
           - PublicSubnet2
           - InstanceType
+          - AmiId
           - KeyPairName
       - Label:
           default: Keycloak
@@ -45,6 +46,30 @@ Parameters:
     AllowedValues:
       - t4g.medium
     Description: EC2 instance type
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-09317ccfac89b432d
+    Description: >-
+      AL2023 arm64 AMI (us-east-1). Pinned to a specific, known-good AMI ID
+      instead of resolving the SSM al2023-ami-kernel-default-arm64 dynamic
+      reference directly in the EC2Instance's ImageId property (do not
+      write that reference's literal double-brace syntax anywhere in this
+      template, including in free-text Description fields like this one --
+      CloudFormation parses dynamic-reference syntax wherever it appears,
+      not just in resource properties, and this exact mistake -- pasting
+      the reference into this field's own description as an example --
+      has broken a deploy before). That inline dynamic
+      reference is re-resolved on every stack update, so any unrelated
+      template change (e.g. a Lambda code tweak) picks up whatever AMI AWS
+      published most recently and silently replaces this running instance —
+      which is running Keycloak + Postgres, so a replacement means data
+      loss. Putting the pin behind a Parameter Default (this field) plus
+      `UpdateReplacePolicy: Retain` on EC2Instance fixes that: CloudFormation
+      only re-resolves this value when you explicitly pass a new one.
+      Deploying in a region other than us-east-1, or want a newer AMI?
+      Override this parameter explicitly (and treat it as a deliberate,
+      reviewed instance replacement, not an accidental side effect).
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
@@ -152,10 +177,11 @@ Resources:
   EC2Instance:
     Type: AWS::EC2::Instance
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       DisableApiTermination: true
       InstanceType: !Ref InstanceType
-      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}'
+      ImageId: !Ref AmiId
       KeyName: !Ref KeyPairName
       SubnetId: !Ref PublicSubnet1
       SecurityGroupIds:
@@ -186,7 +212,7 @@ Resources:
 
           # Clone repository
           dnf install -y git
-          git clone https://github.com/kh2se2013/quick-keycloak-sso.git /opt/keycloak
+          git clone https://github.com/nwcd-samples/quick-keycloak-sso.git /opt/keycloak
           cd /opt/keycloak/docker
 
           # Create .env from parameters
@@ -427,10 +453,20 @@ Resources:
 
         quick = boto3.client("quicksight")
 
+        # All six Quick roles created by bootstrap/main.py, not just the
+        # three Pro tiers. Before this fix, a user provisioned into the
+        # standard (non-Pro) admin/author/reader groups would never get
+        # their QuickSight subscription auto-assigned on first login —
+        # `role_part not in ROLE_SUBSCRIPTION_MAP` silently returns, so the
+        # Lambda does nothing and the user is stuck without a subscription
+        # until someone notices and fixes it by hand.
         ROLE_SUBSCRIPTION_MAP = {
             "QuickAdminProRole": "ADMIN_PRO",
             "QuickAuthorProRole": "AUTHOR_PRO",
             "QuickReaderProRole": "READER_PRO",
+            "QuickAdminRole": "ADMIN",
+            "QuickAuthorRole": "AUTHOR",
+            "QuickReaderRole": "READER",
         }
 
 
@@ -465,8 +501,18 @@ Resources:
             Pattern:
               source:
                 - aws.quicksight
+              # "AWS Service Event via CloudTrail" never matches a real
+              # quicksight.amazonaws.com CreateUser call — that's an
+              # API call made by a principal (the federated user's first
+              # SAML login), which CloudTrail/EventBridge classifies as
+              # "AWS API Call via CloudTrail". With the wrong detail-type
+              # this rule silently never fires and the subscription is
+              # never auto-assigned. Verified against a real deployment:
+              # switching to "AWS API Call via CloudTrail" is what
+              # actually triggers this Lambda (confirmed via CloudWatch
+              # Lambda invocation metrics on a running stack).
               detail-type:
-                - AWS Service Event via CloudTrail
+                - AWS API Call via CloudTrail
               detail:
                 eventSource:
                   - quicksight.amazonaws.com
