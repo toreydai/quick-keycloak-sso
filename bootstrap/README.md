@@ -265,7 +265,8 @@
 ### 10.2 配置 offline_access Scope
 
 1. 进入 Client `amazon-quick-desktop` → **Client scopes** 标签
-2. 找到 `offline_access`，将其从 Optional 改为 **Default**
+2. 确认 `offline_access` 保持 **Optional**
+3. Desktop 客户端需要离线续期时显式请求该 scope，并由用户确认授权
 
 ### 10.3 添加扩展访问权限（Quick 控制台）
 

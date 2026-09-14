@@ -3,10 +3,11 @@ name: postgres
 services:
 
   postgres:
-    image: postgres:17
+    # PostgreSQL 17, linux/arm64 manifest digest.
+    image: postgres@sha256:413da4542e091471785b7f18f1a2258df134bc6506ab4e1e53725aa8bcfdb650
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

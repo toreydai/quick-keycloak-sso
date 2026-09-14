@@ -1,2 +1,2 @@
-python-dotenv
-python-keycloak
+python-dotenv==1.2.1
+python-keycloak==6.0.0

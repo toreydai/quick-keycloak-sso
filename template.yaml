@@ -19,12 +19,10 @@ Metadata:
         Parameters:
           - KeycloakDomain
           - KeycloakAdminUsername
-          - KeycloakAdminPassword
       - Label:
           default: PostgreSQL
         Parameters:
           - PostgresUser
-          - PostgresPassword
 
 Parameters:
   # Infrastructure
@@ -73,7 +71,7 @@ Parameters:
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: EC2 Key Pair for SSH access
+    Description: EC2 key pair name retained for break-glass access; no SSH ingress is opened by this template
 
   # Keycloak
   KeycloakDomain:
@@ -86,21 +84,11 @@ Parameters:
     Default: admin
     Description: Keycloak bootstrap admin username
 
-  KeycloakAdminPassword:
-    Type: String
-    Default: changeme
-    Description: Keycloak bootstrap admin password
-
   # PostgreSQL
   PostgresUser:
     Type: String
     Default: keycloak
     Description: PostgreSQL username
-
-  PostgresPassword:
-    Type: String
-    Default: changeme
-    Description: PostgreSQL password
 
 Resources:
 
@@ -120,13 +108,14 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     DeletionPolicy: Retain
     Properties:
-      GroupDescription: EC2 Security Group - from ALB + SSH
+      GroupDescription: EC2 Security Group - inbound from ALB only
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
           SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Keycloak HTTP from ALB only
 
   # ACM Certificate
   Certificate:
@@ -167,11 +156,61 @@ Resources:
       LoadBalancerArn: !Ref LoadBalancer
       Port: 443
       Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
       Certificates:
         - CertificateArn: !Ref Certificate
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref TargetGroup
+
+  KeycloakAdminSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub "Initial Keycloak master admin password for ${AWS::StackName}"
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludeCharacters: '"''\/@$`'
+
+  PostgresSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub "PostgreSQL password for Keycloak in ${AWS::StackName}"
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludeCharacters: '"''\/@$`'
+
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ReadBootstrapSecrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref KeycloakAdminSecret
+                  - !Ref PostgresSecret
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
 
   # EC2 Instance
   EC2Instance:
@@ -186,6 +225,11 @@ Resources:
       SubnetId: !Ref PublicSubnet1
       SecurityGroupIds:
         - !Ref EC2SecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+        HttpEndpoint: enabled
       CreditSpecification:
         CPUCredits: standard
       BlockDeviceMappings:
@@ -193,39 +237,53 @@ Resources:
           Ebs:
             VolumeSize: 16
             VolumeType: gp3
+            Encrypted: true
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -e
+          umask 077
 
           # Install Docker
           dnf update -y
-          dnf install -y docker
+          dnf install -y docker git
           systemctl enable docker
           systemctl start docker
 
           # Install Docker Compose plugin
+          DOCKER_COMPOSE_VERSION=v2.29.7
+          DOCKER_COMPOSE_SHA256=6e9fbd5daa20dca5d7d89145081ae8155d68ef2928b497d9f85b54fe0f9dbb2c
           mkdir -p /usr/local/lib/docker/cli-plugins
-          curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64" \
+          curl -fsSL "https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VERSION/docker-compose-linux-aarch64" \
             -o /usr/local/lib/docker/cli-plugins/docker-compose
+          echo "$DOCKER_COMPOSE_SHA256  /usr/local/lib/docker/cli-plugins/docker-compose" | sha256sum -c -
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
           # Clone repository
-          dnf install -y git
-          git clone https://github.com/nwcd-samples/quick-keycloak-sso.git /opt/keycloak
+          git clone --branch v2026.09.14-security --depth 1 https://github.com/toreydai/quick-keycloak-sso.git /opt/keycloak
           cd /opt/keycloak/docker
 
-          # Create .env from parameters
+          KEYCLOAK_ADMIN_PASSWORD=$(aws secretsmanager get-secret-value \
+            --region ${AWS::Region} --secret-id ${KeycloakAdminSecret} \
+            --query SecretString --output text \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['password'])")
+          POSTGRES_PASSWORD=$(aws secretsmanager get-secret-value \
+            --region ${AWS::Region} --secret-id ${PostgresSecret} \
+            --query SecretString --output text \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['password'])")
+
+          # Create .env from generated secrets.
           cat > .env << EOF
           POSTGRES_USER=${PostgresUser}
-          POSTGRES_PASSWORD=${PostgresPassword}
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
           POSTGRES_DB=keycloak
 
           KC_BOOTSTRAP_ADMIN_USERNAME=${KeycloakAdminUsername}
-          KC_BOOTSTRAP_ADMIN_PASSWORD=${KeycloakAdminPassword}
+          KC_BOOTSTRAP_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
           KC_DB_URL_HOST=host.docker.internal
           KC_HOSTNAME=${KeycloakDomain}
           EOF
+          chmod 600 .env
 
           # Start services
           docker compose -f compose.postgres.yaml up -d
@@ -256,6 +314,7 @@ Resources:
           # SAML Mapper 配置
           MAPPER_SESSION_DURATION_VALUE=43200
           EOF
+          chmod 600 .env
 
   # IAM Roles - Pro
   QuickAdminProRole:
@@ -528,9 +587,13 @@ Outputs:
     Description: "Configure Keycloak admin - Create a permanent admin account and delete the temporary one"
     Value: !Sub "https://${KeycloakDomain}"
 
+  Step21KeycloakAdminSecret:
+    Description: "Initial Keycloak admin password secret ARN"
+    Value: !Ref KeycloakAdminSecret
+
   Step30Bootstrap:
-    Description: "Configure Keycloak - Edit .env and run bootstrap.sh in /opt/keycloak/bootstrap/"
-    Value: !Sub "ssh ec2-user@${EC2Instance.PublicIp}"
+    Description: "Configure Keycloak - use SSM Session Manager, edit /opt/keycloak/bootstrap/.env, then run bootstrap.sh"
+    Value: !Sub "aws ssm start-session --target ${EC2Instance}"
 
   Step40SAMLProvider:
     Description: "Configure AWS IAM - Download SAML Metadata and create SAML Provider"

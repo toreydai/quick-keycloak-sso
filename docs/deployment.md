@@ -25,14 +25,24 @@ aws acm import-certificate \
 `aws cloudformation deploy` 或控制台都行。这一步部署完之后，Keycloak 本身能跑起来了，但 realm/client/组这些业务配置还没有——那是步骤 3 Bootstrap 做的事。
 
 **已知问题（已在 `template.yaml` 修复，如果你的 fork 版本比较旧，检查一下）**：
-- EC2 `UserData` 里的 `git clone` 地址如果指向的不是 `nwcd-samples/quick-keycloak-sso`，说明是个过时的 fork，可能已经不可访问，会导致这个实例的自举脚本直接失败（`cloud-init status` 显示 `error`，Docker 容器起不来）。
+- EC2 `UserData` 里的 `git clone` 地址应固定到受维护仓库的 release tag 或 commit，不能拉个人 fork 的浮动默认分支；否则自举代码不可复现，也可能因为仓库不可访问导致实例启动失败（`cloud-init status` 显示 `error`，Docker 容器起不来）。
 - `ImageId` 如果还是内联的 `!Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/...}}'` 写法（不是走 `AmiId` 参数），以后任何一次 `cloudformation deploy`（哪怕跟 EC2 毫无关系，比如只改了 Lambda 代码）都有概率因为 AWS 发布了新 AMI 而把这台跑着 Keycloak+Postgres 的实例整个替换重建——**这意味着数据丢失**。这是真实发生过的事故，不是理论风险。
 
 如果你是从零部署这个模板（不是接手别人部署好的实例），这两个坑上游最新版应该已经修了，正常走就行。
 
 ## 步骤 2：配置 Keycloak 管理员
 
-用 `KeycloakAdminUsername`/`KeycloakAdminPassword` 这个临时账号登录，创建正式管理员，然后处理掉临时账号（改密码或禁用）。这一步没有特别的坑，正常按 Keycloak 自己的账户管理走。
+用 `KeycloakAdminUsername` 和 CloudFormation 自动生成到 Secrets Manager 的临时密码登录，创建正式管理员，然后处理掉临时账号（改密码或禁用）。
+
+可以用下面的命令取回初始密码：
+
+```bash
+aws secretsmanager get-secret-value \
+  --secret-id <KeycloakAdminSecret ARN> \
+  --query SecretString --output text
+```
+
+不要把这个临时密码写进工单、聊天记录或本地长期配置文件。
 
 ## 步骤 3：运行 Bootstrap
 

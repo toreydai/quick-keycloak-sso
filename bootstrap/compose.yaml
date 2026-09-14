@@ -1,9 +1,22 @@
 services:
 
   bootstrap:
-    image: python:3.14
-    network_mode: host
+    image: python:3.13.7-slim-bookworm
     working_dir: /app
-    command: sh -c "pip install -r requirements.txt && python main.py"
+    command: sh -c "pip install --no-cache-dir --target /tmp/bootstrap-deps -r requirements.txt && PYTHONPATH=/tmp/bootstrap-deps python main.py"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      KEYCLOAK_SERVER_URL: ${KEYCLOAK_SERVER_URL:-http://host.docker.internal:8080}
+      PYTHONDONTWRITEBYTECODE: "1"
     volumes:
-      - .:/app
+      - ./main.py:/app/main.py:ro
+      - ./requirements.txt:/app/requirements.txt:ro
+      - ./.env:/app/.env:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp

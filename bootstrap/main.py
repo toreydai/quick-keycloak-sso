@@ -39,6 +39,36 @@ QUICK_ADMIN_ROLE = f"arn:aws:iam::{AWS_ACCOUNT_ID}:role/QuickAdminRole,arn:aws:i
 QUICK_AUTHOR_ROLE = f"arn:aws:iam::{AWS_ACCOUNT_ID}:role/QuickAuthorRole,arn:aws:iam::{AWS_ACCOUNT_ID}:saml-provider/keycloak"
 QUICK_READER_ROLE = f"arn:aws:iam::{AWS_ACCOUNT_ID}:role/QuickReaderRole,arn:aws:iam::{AWS_ACCOUNT_ID}:saml-provider/keycloak"
 
+REALM_SECURITY_SETTINGS = {
+    "enabled": True,
+    "realm": KEYCLOAK_QUICK_REALM,
+    "displayName": "Amazon Quick",
+    "sslRequired": "external",
+    "bruteForceProtected": True,
+    "permanentLockout": False,
+    "failureFactor": 5,
+    "waitIncrementSeconds": 60,
+    "maxFailureWaitSeconds": 900,
+    "quickLoginCheckMilliSeconds": 1000,
+    "minimumQuickLoginWaitSeconds": 60,
+    "passwordPolicy": (
+        "length(12) and upperCase(1) and lowerCase(1) and digits(1) "
+        "and specialChars(1) and notUsername and notEmail and passwordHistory(5)"
+    ),
+    "eventsEnabled": True,
+    "eventsExpiration": 7776000,
+    "adminEventsEnabled": True,
+    "adminEventsDetailsEnabled": True,
+    "ssoSessionIdleTimeout": 1800,
+    "ssoSessionMaxLifespan": 43200,
+    "offlineSessionIdleTimeout": 2592000,
+    "offlineSessionMaxLifespanEnabled": True,
+    "offlineSessionMaxLifespan": 2592000,
+    "registrationAllowed": False,
+    "resetPasswordAllowed": True,
+    "verifyEmail": True,
+}
+
 # 连接 Keycloak
 admin = KeycloakAdmin(
     server_url=KEYCLOAK_SERVER_URL,
@@ -51,11 +81,7 @@ print(f"[OK] Keycloak '{KEYCLOAK_SERVER_URL}' 已连接")
 
 # 步骤 1：创建 Realm
 try:
-    admin.create_realm(payload={
-        "enabled": True,
-        "realm": KEYCLOAK_QUICK_REALM,
-        "displayName": "Amazon Quick"
-    })
+    admin.create_realm(payload=REALM_SECURITY_SETTINGS)
     print(f"[OK] Realm '{KEYCLOAK_QUICK_REALM}' 创建成功")
 except KeycloakError as e:
     if "409" in str(e):
@@ -65,6 +91,13 @@ except KeycloakError as e:
 
 # 步骤 2：创建管理员用户
 admin.change_current_realm(KEYCLOAK_QUICK_REALM)
+
+try:
+    admin.update_realm(realm_name=KEYCLOAK_QUICK_REALM, payload=REALM_SECURITY_SETTINGS)
+    print(f"[OK] Realm '{KEYCLOAK_QUICK_REALM}' 安全策略已更新")
+except TypeError:
+    admin.update_realm(KEYCLOAK_QUICK_REALM, REALM_SECURITY_SETTINGS)
+    print(f"[OK] Realm '{KEYCLOAK_QUICK_REALM}' 安全策略已更新")
 
 try:
     admin.create_user({
@@ -241,6 +274,10 @@ try:
         "protocol": "openid-connect",
         "clientId": "amazon-quick-desktop",
         "name": "Amazon Quick Desktop",
+        "publicClient": True,
+        "fullScopeAllowed": False,
+        "consentRequired": True,
+        "standardFlowEnabled": True,
         "directAccessGrantsEnabled": False,
         "redirectUris": ["http://localhost:18080"],
         "attributes": {
@@ -254,7 +291,7 @@ except KeycloakError as e:
     else:
         raise
 
-# 步骤 10.2：配置 offline_access Scope 为 Default
+# 步骤 10.2：保持 offline_access 为 Optional，避免默认签发长期离线令牌
 oidc_clients = admin.get_clients()
 oidc_client_uuid = None
 for c in oidc_clients:
@@ -263,17 +300,17 @@ for c in oidc_clients:
         break
 
 if oidc_client_uuid:
-    optional_scopes = admin.get_client_optional_client_scopes(oidc_client_uuid)
-    for scope in optional_scopes:
+    default_scopes = admin.get_client_default_client_scopes(oidc_client_uuid)
+    for scope in default_scopes:
         if scope["name"] == "offline_access":
-            admin.delete_client_optional_client_scope(oidc_client_uuid, scope["id"])
-            admin.add_client_default_client_scope(oidc_client_uuid, scope["id"], {})
-            print("[OK] Scope 'offline_access' 已设为 Default")
+            admin.delete_client_default_client_scope(oidc_client_uuid, scope["id"])
+            admin.add_client_optional_client_scope(oidc_client_uuid, scope["id"], {})
+            print("[OK] Scope 'offline_access' 已设为 Optional")
             break
     else:
-        default_scopes = admin.get_client_default_client_scopes(oidc_client_uuid)
-        if any(s["name"] == "offline_access" for s in default_scopes):
-            print("[SKIP] Scope 'offline_access' 已是 Default")
+        optional_scopes = admin.get_client_optional_client_scopes(oidc_client_uuid)
+        if any(s["name"] == "offline_access" for s in optional_scopes):
+            print("[SKIP] Scope 'offline_access' 已是 Optional")
         else:
             print("[WARN] Scope 'offline_access' 未找到")
 else:

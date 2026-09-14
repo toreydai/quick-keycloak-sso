@@ -3,14 +3,13 @@ name: keycloak
 services:
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.6.3
+    # Keycloak 26.7.2, linux/arm64 manifest digest.
+    image: quay.io/keycloak/keycloak@sha256:cec1f47daf95f81fc78ff2391e262a70ddc9826a657cee7d8068a946a72bd8a7
     restart: unless-stopped
     command:
       - start
     ports:
-      - "8080:8080"
-      - "7800:7800"
-      - "57800:57800"
+      - "127.0.0.1:8080:8080"
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
@@ -22,6 +21,7 @@ services:
       KC_DB_URL_DATABASE: ${POSTGRES_DB}
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: true
+      KC_HOSTNAME_STRICT: true
       KC_HOSTNAME: ${KC_HOSTNAME}
       KC_HEALTH_ENABLED: true
       KC_HTTP_MANAGEMENT_HEALTH_ENABLED: false
