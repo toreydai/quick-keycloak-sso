@@ -316,6 +316,11 @@ Resources:
           # Clone repository
           git clone --branch v2026.09.14-security --depth 1 https://github.com/toreydai/quick-keycloak-sso.git /opt/keycloak
           cd /opt/keycloak/docker
+          # v2026.09.14-security still binds container ports to 127.0.0.1,
+          # which makes ALB health checks fail. Keep this runtime patch until
+          # the template is retagged to a release that includes the compose fix.
+          sed -i "s/127.0.0.1:5432:5432/5432:5432/" compose.postgres.yaml
+          sed -i "s/127.0.0.1:8080:8080/8080:8080/" compose.keycloak.yaml
 
           KEYCLOAK_ADMIN_PASSWORD=$(aws secretsmanager get-secret-value \
             --region ${AWS::Region} --secret-id ${KeycloakAdminSecret} \

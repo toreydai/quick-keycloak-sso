@@ -7,7 +7,9 @@ services:
     image: postgres@sha256:413da4542e091471785b7f18f1a2258df134bc6506ab4e1e53725aa8bcfdb650
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5432:5432"
+      # Keycloak runs in a separate compose project and reaches Postgres via
+      # host.docker.internal, so this must bind on the host interface.
+      - "5432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
